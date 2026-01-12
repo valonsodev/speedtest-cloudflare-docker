@@ -1,0 +1,15 @@
+AGENTS.md
+# Python
+__pycache__/
+*.py[cod]
+
+# Local tooling caches
+.ruff_cache/
+
+# Local artifacts
+*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,121 @@
+name: publish
+
+on:
+  schedule:
+    # Poll upstream releases
+    - cron: "17 */24 * * *"
+  workflow_dispatch: {}
+  # Optional: allow publishing on pushes (e.g. for maintenance).
+  push:
+    branches: ["main"]
+    paths:
+      - "Dockerfile"
+      - "app/**"
+      - ".github/workflows/publish.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  UPSTREAM_REPO: kavehtehrani/cloudflare-speed-cli
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/speedtest-cloudflare-docker
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          tag=$(curl -fsSL "https://api.github.com/repos/${UPSTREAM_REPO}/releases/latest" | python3 -c 'import json,sys; print(json.load(sys.stdin)["tag_name"])')
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+
+      - name: Set metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          echo "image=${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${{ steps.version.outputs.tag }}" >> "$GITHUB_OUTPUT"
+
+          # Always push latest.
+          echo "push_latest=true" >> "$GITHUB_OUTPUT"
+
+          # Force rebuilds for push or manual dispatch.
+          force="false"
+          if [ "${{ github.event_name }}" != "schedule" ]; then
+            force="true"
+          fi
+          echo "force=${force}" >> "$GITHUB_OUTPUT"
+
+      - name: Check if tag already exists in GHCR
+        id: exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="${{ github.repository_owner }}"
+          pkg="speedtest-cloudflare-docker"
+          tag="${{ steps.meta.outputs.version }}"
+
+          exists="false"
+          if gh api -H "Accept: application/vnd.github+json" \
+            "/users/${owner}/packages/container/${pkg}/versions" \
+            --paginate \
+            -q '.[].metadata.container.tags[]' 2>/dev/null | grep -qx "$tag"; then
+            exists="true"
+          fi
+
+          should_build="true"
+          if [ "${exists}" = "true" ] && [ "${{ steps.meta.outputs.force }}" != "true" ]; then
+            should_build="false"
+          fi
+
+          echo "exists=${exists}" >> "$GITHUB_OUTPUT"
+          echo "should_build=${should_build}" >> "$GITHUB_OUTPUT"
+
+      # Only run Setup/Login if we're going to build
+      - name: Setup QEMU
+        if: steps.exists.outputs.should_build == 'true'
+        uses: docker/setup-qemu-action@v3
+
+
+      - name: Setup Buildx
+        if: steps.exists.outputs.should_build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        if: steps.exists.outputs.should_build == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (version + latest)
+        if: steps.exists.outputs.should_build == 'true' && steps.meta.outputs.push_latest == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          build-args: |
+            CLOUDFLARE_SPEED_CLI_VERSION=${{ steps.meta.outputs.version }}
+
+      - name: Summary
+        run: |
+          echo "Version: ${{ steps.meta.outputs.version }}"
+          echo "Image: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}"
+          echo "Exists in GHCR: ${{ steps.exists.outputs.exists }}"
+          echo "Will build: ${{ steps.exists.outputs.should_build }}"
+          echo "Pushed version: ${{ steps.exists.outputs.should_build == 'true' }}"
+          echo "Pushed latest: ${{ steps.exists.outputs.should_build == 'true' && steps.meta.outputs.push_latest == 'true' }}"
