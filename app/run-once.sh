@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ -z "${EXPOSITION_ENDPOINT:-}" ]]; then
-  echo "EXPOSITION_ENDPOINT env var is required."
+  echo "[$(date +"%d/%m/%Y %H:%M:%S")] EXPOSITION_ENDPOINT env var is required."
   exit 2
 fi
 
@@ -16,11 +16,11 @@ if [[ -n "${CLOUDFLARE_SPEED_CLI_ARGS:-}" ]]; then
   args=(${CLOUDFLARE_SPEED_CLI_ARGS})
 fi
 
-echo "Starting Cloudflare Speed Test..."
+echo "[$(date +"%d/%m/%Y %H:%M:%S")] Starting Cloudflare Speed Test..."
 cloudflare-speed-cli "${args[@]}" >"$out_json"
 
-echo "Exporting metrics to ${EXPOSITION_ENDPOINT}..."
+echo "[$(date +"%d/%m/%Y %H:%M:%S")] Exporting metrics to ${EXPOSITION_ENDPOINT}..."
 python3 /app/otlp_metrics.py --input "$out_json"
 
-echo "Scan finished successfully."
+echo "[$(date +"%d/%m/%Y %H:%M:%S")] Scan finished successfully."
 rm -f "$out_json"

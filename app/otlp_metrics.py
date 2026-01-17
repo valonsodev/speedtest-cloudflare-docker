@@ -16,6 +16,10 @@ def ns_now() -> int:
     return int(time.time() * 1_000_000_000)
 
 
+def get_timestamp() -> str:
+    return time.strftime("%d/%m/%Y %H:%M:%S")
+
+
 def get(obj: Any, path: List[str], default: Any = None) -> Any:
     cur = obj
     for p in path:
@@ -95,7 +99,7 @@ def main() -> int:
 
     endpoint = os.getenv("EXPOSITION_ENDPOINT", "").strip()
     if not endpoint:
-        raise SystemExit("EXPOSITION_ENDPOINT is required")
+        raise SystemExit(f"[{get_timestamp()}] EXPOSITION_ENDPOINT is required")
 
     dry_run = os.getenv("DRY_RUN", "false").lower() == "true"
 
@@ -209,7 +213,7 @@ def main() -> int:
             lines.append(line)
 
     if not lines:
-        raise SystemExit("No metrics extracted from JSON.")
+        raise SystemExit(f"[{get_timestamp()}] No metrics extracted from JSON.")
 
     payload = "\n".join(lines) + "\n"
 
@@ -231,14 +235,16 @@ def main() -> int:
         with urllib.request.urlopen(req, timeout=30) as resp:
             if resp.status >= 400:
                 body = resp.read().decode("utf-8", errors="replace")
-                raise SystemExit(f"Exposition export failed: {resp.status} {body}")
+                raise SystemExit(
+                    f"[{get_timestamp()}] Exposition export failed: {resp.status} {body}"
+                )
             print(
-                f"Successfully exported metrics to {exposition_url} (HTTP {resp.status})"
+                f"[{get_timestamp()}] Successfully exported metrics to {exposition_url} (HTTP {resp.status})"
             )
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         raise SystemExit(
-            f"Exposition export failed: {e.code} {e.reason}: {body} (POST {exposition_url})"
+            f"[{get_timestamp()}] Exposition export failed: {e.code} {e.reason}: {body} (POST {exposition_url})"
         )
 
     return 0
